@@ -1,0 +1,1005 @@
+esphome:
+  name: "billy-bass"
+  friendly_name: Billy Bass
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3  
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+    version: recommended
+    sdkconfig_options:
+      # ESP32-S3 N16R8
+      CONFIG_ESP32_S3_BOX_BOARD: "y"
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB:      "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B:  "y"
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+      CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+      CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y" 
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+
+ota:
+- platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/Cian911/billy-ai
+      ref: main
+    components: [speaker_tap]
+
+
+api:
+  on_client_connected:
+        then:
+          - micro_wake_word.start:
+  on_client_disconnected:
+        then:
+          - voice_assistant.stop: 
+
+
+# add empty sensor so speaker_tap can compile
+sensor:
+
+
+# ---------- Outputs ----------
+output:
+
+  - platform: gpio
+    pin: 
+      number: GPIO014
+      allow_other_uses: true
+    id: set_low_speaker  # reduce popping on speaker start
+
+
+  - platform: ledc
+    pin: GPIO10 # was 32
+    id: motor_forward_pin
+    frequency: 20000 Hz
+
+  - platform: ledc
+    pin: GPIO11 # was 14
+    id: motor_reverse_pin
+    frequency: 20000 Hz
+
+  - platform: ledc
+    frequency: 20000 Hz
+    pin: GPIO16 # was 23
+    id: motor2_forward_pin
+
+  - platform: ledc
+    pin: GPIO17 # was 22
+    frequency: 20000 Hz
+    id: motor2_reverse_pin    
+
+  - platform: ledc
+    frequency: 20000 Hz
+    pin: GPIO08 # was 23
+    id: motor3_forward_pin
+
+  - platform: ledc
+    pin: GPIO09 # was 22
+    frequency: 20000 Hz
+    id: motor3_reverse_pin    
+
+
+
+
+globals:
+  - id: mouth_is_open
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: last_pulse_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: random_reply
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: done_talking   
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: songnum   
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: songtime   
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: call_action   
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: wake_response   
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+
+
+audio_file:
+  - id: wake_sound    
+    file:
+      type: local
+      path: "audio/what.mp3"
+
+  - id: wake_sound2
+    file:
+      type: local
+      path: "audio/whatsup.mp3"
+
+  - id: wake_sound3
+    file:
+      type: local
+      path: "audio/whatuwant.mp3"
+
+  - id: wake_sound4
+    file:
+      type: local
+      path: "audio/sup.mp3"
+
+
+  - id: river_song
+    file:
+      type: local
+      path: "audio/river_song7.mp3"
+
+  - id: happy_song
+    file:
+      type: local
+      path: "audio/be_happy.mp3"
+
+
+
+###############################################################################################################################
+
+
+
+
+
+i2s_audio:   ##########################################################
+  - id: mic_i2s
+    i2s_lrclk_pin: GPIO01
+    i2s_bclk_pin: GPIO05
+  - id: spk_i2s
+    i2s_lrclk_pin: GPIO06
+    i2s_bclk_pin: GPIO07
+
+microphone:    ########################################################
+  - platform: i2s_audio
+    id: mic
+    i2s_audio_id: mic_i2s
+    adc_type: external        
+    i2s_din_pin: GPIO04
+    channel: left    
+    pdm: false
+
+
+speaker:   ############################################################
+  - platform: i2s_audio
+    id: big_speaker
+    i2s_audio_id: spk_i2s
+
+
+    i2s_dout_pin: 
+      number: GPIO014
+      allow_other_uses: true
+    dac_type: external
+    
+
+
+  - platform: speaker_tap
+    id: spk_tap
+    sink: big_speaker
+    num_channels: "1"
+    gain: 3.0
+    attack_ms: 18
+    release_ms: 120
+    publish_interval: 100ms
+    sample_rate: 16000     
+    level:
+      id: audio_level
+      name: "Audio Level"
+      on_value:
+        then:         
+          - lambda: |-
+              static float ema = 0.0f;
+              const float alpha = 0.25f;
+              float v = x;
+              ema = (1.0f - alpha) * ema + alpha * v;
+
+              const float OPEN_TH   = 7.0f;
+              const float CLOSE_TH  = 6.0f;
+              const uint32_t REFRESH_MS = 140;
+              const uint32_t MIN_GAP_MS = 40;  
+              const uint32_t FAILSAFE_MS = 900;
+
+              static bool open = false;
+              static uint32_t last_ms = 0;
+              uint32_t now = millis();
+
+              if (!open) {
+                if (ema > OPEN_TH && (now - last_ms > MIN_GAP_MS)) {
+                  id(mouth_open_pulse).execute();
+                  open = true;
+                  last_ms = now;
+                }
+              } else {
+                if (ema > OPEN_TH) {
+                  if (now - last_ms > REFRESH_MS) {
+                    id(mouth_open_keep).execute();
+                    last_ms = now;
+                  }
+                } else if (ema < CLOSE_TH) {
+                  id(mouth_close_pulse).execute();
+                  open = false;
+                  last_ms = now;
+                }
+                if (open && (now - last_ms > FAILSAFE_MS)) {
+                  id(mouth_close_pulse).execute();
+                  open = false;
+                  last_ms = now;
+                }
+              }
+
+
+
+  - platform: mixer
+    id: mixer_speaker_id
+    output_speaker: big_speaker
+    num_channels: 1
+    source_speakers:
+      - id: announcement_spk_mixer_input
+      - id: media_spk_mixer_input
+
+  - platform: resampler
+    id: media_spk_resampling_input
+    output_speaker: media_spk_mixer_input
+    task_stack_in_psram: True    
+
+  - platform: resampler
+    id: announcement_spk_resampling_input
+    output_speaker: announcement_spk_mixer_input
+    task_stack_in_psram: True    
+
+
+
+media_player:    ###########################################################
+   - platform: speaker
+     id: billy_bass_media_player
+     name: Billy Bass Media Player
+
+     announcement_pipeline:
+       speaker: announcement_spk_resampling_input 
+       num_channels: 1
+       format: MP3
+
+     media_pipeline:
+       speaker: media_spk_resampling_input
+       format: MP3
+       num_channels: 1
+
+
+
+micro_wake_word:   ###########################################################
+  id: mww
+  microphone:
+    microphone: mic
+    channels: 0
+    gain_factor: 4
+  vad:
+  models:
+    - model: "https://raw.githubusercontent.com/TaterTotterson/microWakeWords/refs/heads/main/microWakeWords/hey_billy.json"
+      id: hey_billy    
+
+  on_wake_word_detected:
+    - logger.log: "** WAKE WORD DETECTED**"       
+
+    - lambda: |-
+        auto c = id(head_motor).turn_on();
+        c.set_direction(FanDirection::FORWARD);
+        c.set_speed(100);
+        c.perform();
+
+    - delay: 700ms 
+
+    - lambda: "id(wake_response)  = (random_uint32() % 3);"    
+    - if:
+        condition:
+          lambda: 'return id(wake_response) == 0;'
+        then:
+          - media_player.speaker.play_on_device_media_file:
+              media_file: wake_sound
+  
+    - if:
+        condition:
+          lambda: 'return id(wake_response) == 1;'
+        then:
+          - media_player.speaker.play_on_device_media_file:
+              media_file: wake_sound2
+
+    - if:
+        condition:
+          lambda: 'return id(wake_response) == 2;'
+        then:
+          - media_player.speaker.play_on_device_media_file:
+              media_file: wake_sound3
+  
+    - if:
+        condition:
+          lambda: 'return id(wake_response) == 3;'
+        then:
+          - media_player.speaker.play_on_device_media_file:
+              media_file: wake_sound4
+
+    - delay: 100ms 
+
+    - lambda: |-
+        auto c = id(mouth_motor).turn_on();
+        c.set_direction(FanDirection::FORWARD);
+        c.set_speed(100);
+        c.perform();
+    - delay: 200ms 
+
+    - lambda: "id(mouth_motor).turn_off().perform();"
+    - lambda: |-
+        auto c = id(mouth_motor).turn_on();
+        c.set_direction(FanDirection::REVERSE);
+        c.set_speed(100);
+        c.perform();
+    - delay: 500ms 
+    - lambda: "id(mouth_motor).turn_off().perform();"
+
+    - voice_assistant.start:
+        wake_word: !lambda return wake_word;
+
+
+
+
+
+voice_assistant:   ###########################################################
+  id: assist
+  microphone: mic
+  micro_wake_word: mww
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 3.0
+  speaker: spk_tap
+
+
+  on_error:
+    - micro_wake_word.stop:
+    - logger.log: "** VA ERROR **"    
+    - lambda: "id(error_action).execute();" 
+    - delay: 200ms       
+    - micro_wake_word.start:     
+
+
+  on_end:
+    - logger.log: "** VA END **"        
+    - lambda: "id(head_motor).turn_off().perform();"    
+    - lambda: "id(mouth_motor).turn_off().perform();"  
+    - micro_wake_word.stop:
+    - wait_until:
+        not:
+          voice_assistant.is_running:
+    - micro_wake_word.start:      
+    
+
+  on_stt_end:
+    - logger.log: "** STT END **"
+    - lambda: "id(head_motor).turn_off().perform();"    
+    - lambda: "id(mouth_motor).turn_off().perform();"    
+
+
+  on_tts_start:
+    - logger.log: "** TTS START **"   
+
+
+
+
+switch:    ###########################################################
+
+  - platform: restart
+    name: "Restart Device"
+
+  - platform: template
+    id: mute
+    name: mute
+    optimistic: true
+    icon: "mdi:volume-mute"
+    on_turn_on: 
+      - micro_wake_word.stop:
+      - voice_assistant.stop:
+
+    on_turn_off:
+      - micro_wake_word.start:
+
+
+
+    
+
+fan:   ###########################################################
+  - platform: hbridge
+    id: mouth_motor
+    name: "Billy Bass Mouth"
+    pin_a: motor_forward_pin
+    pin_b: motor_reverse_pin
+    decay_mode: FAST
+    speed_count: 100
+    internal: True
+
+  - platform: hbridge
+    id: head_motor
+    name: "Billy Bass Head"
+    pin_a: motor2_forward_pin
+    pin_b: motor2_reverse_pin
+    decay_mode: SLOW
+    speed_count: 100
+    internal: True
+
+  - platform: hbridge
+    id: tail_motor
+    name: "Billy Bass Tail"
+    pin_a: motor3_forward_pin
+    pin_b: motor3_reverse_pin
+    decay_mode: SLOW
+    speed_count: 10
+    internal: True
+
+
+
+
+
+button:   ###############################################################
+
+  - platform: template
+    name: "xCTRL Move Tail"
+    id: tail_flap
+    icon: "mdi:fish"
+    on_press:
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 140ms
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();                 
+      - delay: 60ms
+      - lambda: "id(tail_motor).turn_off().perform();"
+
+
+
+  - platform: template    ###################
+    name: "xCTRL Speaking"
+    id: say_something
+    icon: "mdi:account-voice"
+    on_press:
+      - lambda: |-
+          auto c = id(head_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 509ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 350ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();          
+      - delay: 100ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 350ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();    
+      - delay: 100ms
+      - lambda: "id(mouth_motor).turn_off().perform();"    
+      - delay: 400ms      
+      - lambda: "id(tail_motor).turn_off().perform();"
+      - lambda: "id(head_motor).turn_off().perform();"  
+
+
+
+  - platform: template     ###################
+    name: "xCTRL Move Mouth"
+    id: mouth_button
+    icon: "mdi:fish"
+    on_press:
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 350ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();          
+      - delay: 200ms  
+      - lambda: "id(mouth_motor).turn_off().perform();"
+
+
+
+  - platform: template    ###################
+    name: "xCTRL Move Head"
+    icon: "mdi:fish"
+    on_press:
+      - lambda: |-
+          auto c = id(head_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 2000ms  
+      - lambda: "id(head_motor).turn_off().perform();"
+
+
+
+  - platform: template    ###################
+    name: "xCTRL All Off"
+    icon: "mdi:fish-off"
+    on_press:
+      - lambda: "id(tail_motor).turn_off().perform();"
+      - lambda: "id(mouth_motor).turn_off().perform();"
+      - lambda: "id(head_motor).turn_off().perform();"      
+
+
+
+  - platform: template   ###################
+    name: "Sing the River Song"
+    id: sing_river
+    icon: "mdi:sail-boat"
+    on_press:
+      - media_player.speaker.play_on_device_media_file:
+          media_file: river_song  
+      - lambda: "id(songtime) = 118;"
+      - lambda: "id(songnum) = 1;"
+
+
+
+  - platform: template    ###################
+    name: "Sing the Happy Song"
+    id: sing_happy
+    icon: "mdi:emoticon-happy"
+    on_press:
+      - media_player.speaker.play_on_device_media_file:
+          media_file: happy_song  
+      - lambda: "id(songtime) = 100;"
+      - lambda: "id(songnum) = 2;"
+
+
+
+  - platform: template    ###################
+    name: "Sing a Song"
+    icon: "mdi:music"
+    on_press:
+      - lambda: |-      
+         if (id(songnum)==1) { 
+            id(sing_happy).press();
+         } else {
+            id(sing_river).press();
+         }
+
+
+
+
+
+
+
+
+
+script:     ###############################################################
+
+
+  - id: mouth_open_pulse    ###################
+    mode: single
+    then:
+      - delay: 100ms
+      - lambda: |-      
+          auto call = id(mouth_motor).turn_on();
+          call.set_direction(FanDirection::FORWARD);
+          call.set_speed(100);
+          call.perform();
+      - delay: 150ms
+      - lambda: |-
+          id(mouth_motor).turn_off().perform();
+          id(done_talking) = 8;
+      - delay: 60ms
+
+
+  - id: mouth_open_keep    ###################
+    mode: single
+    then:
+      - delay: 100ms
+      - lambda: |-
+          auto call = id(mouth_motor).turn_on();
+          call.set_direction(FanDirection::FORWARD);
+          call.set_speed(80);
+          call.perform();
+      - delay: 280ms
+      - lambda: |-
+          id(mouth_motor).turn_off().perform();
+          id(done_talking) = 8;       
+      - delay: 110ms
+
+
+  - id: mouth_close_pulse    ###################
+    mode: restart
+    then:
+      - lambda: |-
+          auto call = id(mouth_motor).turn_on();
+          call.set_direction(FanDirection::REVERSE);
+          call.set_speed(100);
+          call.perform();
+      - delay: 80ms
+      - lambda: |-
+          id(mouth_motor).turn_off().perform();
+          id(done_talking) = 8;         
+      - delay: 110ms      
+
+
+
+  - id: finished_speaking    ###################
+    mode: restart
+    then:
+      - lambda: |-
+          auto call = id(mouth_motor).turn_on();
+          call.set_direction(FanDirection::REVERSE);
+          call.set_speed(75);
+          call.perform();
+      - lambda: "id(head_motor).turn_off().perform();"    
+      - delay: 160ms 
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 110ms 
+      - lambda: "id(tail_motor).turn_off().perform();"
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();
+      - delay: 60ms 
+      - lambda: "id(tail_motor).turn_off().perform();"           
+      - delay: 460ms 
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 120ms 
+      - lambda: "id(tail_motor).turn_off().perform();"
+      - lambda: "id(mouth_motor).turn_off().perform();"      
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();
+      - delay: 60ms 
+      - lambda: "id(tail_motor).turn_off().perform();"
+
+
+
+  - id: sing_3    ###################
+    mode: restart
+    then:
+      - lambda: |-
+          auto c = id(head_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 509ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 350ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();          
+      - delay: 100ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 350ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();    
+      - delay: 100ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 450ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();         
+      - delay: 400ms      
+      - lambda: "id(tail_motor).turn_off().perform();"
+      - lambda: "id(mouth_motor).turn_off().perform();"
+      - lambda: "id(head_motor).turn_off().perform();"  
+
+
+
+  - id: sing_4    ###################
+    mode: restart
+    then:
+      - lambda: |-
+          auto c = id(head_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 509ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 350ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();          
+      - delay: 100ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 350ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();    
+      - delay: 100ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 450ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();      
+      - delay: 100ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 320ms
+      - lambda: |-
+          auto c = id(mouth_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();     
+      - delay: 400ms      
+      - lambda: "id(tail_motor).turn_off().perform();"
+      - lambda: "id(mouth_motor).turn_off().perform();"
+      - lambda: "id(head_motor).turn_off().perform();" 
+
+
+
+  - id: tail_move    ###################
+    mode: restart
+    then:
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 140ms
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();          
+      - delay: 60ms
+      - lambda: "id(tail_motor).turn_off().perform();"
+      - delay: 1200ms
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::FORWARD);
+          c.set_speed(100);
+          c.perform();
+      - delay: 140ms
+      - lambda: |-
+          auto c = id(tail_motor).turn_on();
+          c.set_direction(FanDirection::REVERSE);
+          c.set_speed(100);
+          c.perform();          
+      - delay: 60ms
+      - lambda: "id(tail_motor).turn_off().perform();"
+
+
+
+  - id: error_action    ###################
+    mode: restart
+    then:
+    - lambda: "id(head_motor).turn_off().perform();"    
+    - delay: 600ms 
+    - lambda: |-
+        auto c = id(tail_motor).turn_on();
+        c.set_direction(FanDirection::FORWARD);
+        c.set_speed(100);
+        c.perform();
+    - delay: 100ms 
+    - lambda: "id(tail_motor).turn_off().perform();"
+    - lambda: |-
+        auto c = id(tail_motor).turn_on();
+        c.set_direction(FanDirection::REVERSE);
+        c.set_speed(100);
+        c.perform();
+    - delay: 60ms 
+    - lambda: "id(tail_motor).turn_off().perform();"
+    - delay: 600ms     
+    - lambda: |-
+        auto c = id(tail_motor).turn_on();
+        c.set_direction(FanDirection::FORWARD);
+        c.set_speed(100);
+        c.perform();
+    - delay: 100ms 
+    - lambda: "id(tail_motor).turn_off().perform();"
+    - lambda: |-
+        auto c = id(tail_motor).turn_on();
+        c.set_direction(FanDirection::REVERSE);
+        c.set_speed(100);
+        c.perform();
+    - delay: 60ms 
+    - lambda: "id(tail_motor).turn_off().perform();"
+    - lambda: "id(mouth_motor).turn_off().perform();"  
+    - lambda: "id(head_motor).turn_off().perform();" 
+
+
+
+
+
+
+
+
+
+
+
+time:     ###############################################################
+  - platform: homeassistant
+    id: my_time
+
+interval:
+  - interval: 250ms
+    then:
+      - if:            # After finished speaking for a bit, Close the mouth and flap the tail to let us know you're done.
+          condition:
+            lambda: 'return id(done_talking) > 0;'
+          then:
+            - lambda: |-
+                id(done_talking)--;
+                if (id(done_talking) == 0 ) {
+                  id(finished_speaking).execute();                 
+                }
+
+      - if:
+          condition:    # If a song is currently playing, Check for animation keyframes
+            lambda: 'return id(songtime) > 0;'
+          then:
+            - lambda: |-
+                id(songtime)--;
+                
+                if (id(songnum)==1) { 
+                    // Take me to the River Song
+                    // Singing Animation
+                    if (id(songtime)==70) { id(call_action) = 4;}
+                    if (id(songtime)==55) { id(call_action) = 4;}
+                    if (id(songtime)==40) { id(call_action) = 4;}
+                    if (id(songtime)==24) { id(call_action) = 4;}
+
+                    // Tail Animation
+                    if (id(songtime)==100) { id(call_action) = 2;}
+                    if (id(songtime)==90) { id(call_action) = 2;}
+                    if (id(songtime)==80) { id(call_action) = 2;}
+                    if (id(songtime)==10) { id(call_action) = 2;}
+
+                } else {
+                    // Dont Worry Song
+                    //Singing Animation
+                    if (id(songtime)==77) { id(call_action) = 3;}
+                    if (id(songtime)==65) { id(call_action) = 3;}  
+                    if (id(songtime)==33) { id(call_action) = 3;}
+                    if (id(songtime)==20) { id(call_action) = 3;}
+
+                    // Tail Animation
+                    if (id(songtime)==7) { id(call_action) = 4;}  
+                    if (id(songtime)==97) { id(call_action) = 2;}
+                    if (id(songtime)==88) { id(call_action) = 2;}
+                    if (id(songtime)==50) { id(call_action) = 2;}                                                       
+                }
+            
+
+      # Perform Animation by running scripts
+      - if:
+          condition:
+            lambda: 'return id(call_action) == 2;'
+          then:
+            - lambda: |-
+                id(call_action) = 0;
+                id(tail_move).execute(); 
+            - logger.log: "Tail Flap" 
+
+      - if:
+          condition:
+            lambda: 'return id(call_action) == 3;'
+          then:
+            - lambda: |-
+                id(call_action) = 0;
+                id(sing_3).execute(); 
+            - logger.log: "Singing 3"  
+
+      - if:
+          condition:
+            lambda: 'return id(call_action) == 4;'
+          then:
+            - lambda: |-
+                id(call_action) = 0;
+                id(sing_4).execute(); 
+            - logger.log: "Singing 4"  
+
+
+
+
+
+###
