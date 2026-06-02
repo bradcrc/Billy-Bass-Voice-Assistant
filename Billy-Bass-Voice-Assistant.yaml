@@ -356,6 +356,7 @@ micro_wake_word:   ###########################################################
           - media_player.speaker.play_on_device_media_file:
               media_file: wake_sound4
 
+
     - delay: 100ms 
 
     - lambda: |-
@@ -371,8 +372,33 @@ micro_wake_word:   ###########################################################
         c.set_direction(FanDirection::REVERSE);
         c.set_speed(100);
         c.perform();
-    - delay: 500ms 
+    - delay: 60ms 
     - lambda: "id(mouth_motor).turn_off().perform();"
+
+    - delay: 100ms 
+
+    - if:  # another syllable 
+        condition:
+          lambda: 'return (id(wake_response) == 1 || id(wake_response) == 2 );'
+        then:
+          - lambda: |-
+              auto c = id(mouth_motor).turn_on();
+              c.set_direction(FanDirection::FORWARD);
+              c.set_speed(100);
+              c.perform();
+          - delay: 100ms 
+          - lambda: "id(mouth_motor).turn_off().perform();"
+          - lambda: |-
+              auto c = id(mouth_motor).turn_on();
+              c.set_direction(FanDirection::REVERSE);
+              c.set_speed(100);
+              c.perform();
+          - delay: 60ms 
+          - lambda: "id(mouth_motor).turn_off().perform();"
+
+    - delay: 300ms 
+
+
 
     - voice_assistant.start:
         wake_word: !lambda return wake_word;
@@ -640,7 +666,14 @@ script:     ###############################################################
           call.set_direction(FanDirection::FORWARD);
           call.set_speed(100);
           call.perform();
-      - delay: 150ms
+      - delay: 100ms
+
+      - if:
+          condition:
+            lambda: 'return ((random_uint32() % 10) > 6);'
+          then:
+            - delay: 100ms
+
       - lambda: |-
           id(mouth_motor).turn_off().perform();
           id(done_talking) = 8;
@@ -656,7 +689,14 @@ script:     ###############################################################
           call.set_direction(FanDirection::FORWARD);
           call.set_speed(80);
           call.perform();
-      - delay: 280ms
+      - delay: 150ms
+
+      - if:
+          condition:
+            lambda: 'return ((random_uint32() % 10) > 6);'
+          then:
+            - delay: 100ms
+
       - lambda: |-
           id(mouth_motor).turn_off().perform();
           id(done_talking) = 8;       
@@ -666,16 +706,18 @@ script:     ###############################################################
   - id: mouth_close_pulse    ###################
     mode: restart
     then:
+      - lambda: "id(mouth_motor).turn_off().perform();"    
+      - delay: 10ms       
       - lambda: |-
           auto call = id(mouth_motor).turn_on();
           call.set_direction(FanDirection::REVERSE);
           call.set_speed(100);
           call.perform();
-      - delay: 80ms
+      - delay: 150ms
       - lambda: |-
           id(mouth_motor).turn_off().perform();
           id(done_talking) = 8;         
-      - delay: 110ms      
+      - delay: 100ms      
 
 
 
