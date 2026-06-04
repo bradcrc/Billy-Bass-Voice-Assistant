@@ -63,36 +63,36 @@ output:
     pin: 
       number: GPIO014
       allow_other_uses: true
-    id: set_low_speaker  # reduce popping on speaker start
+    id: set_low_speaker         # reduce popping on speaker start
 
 
   - platform: ledc
-    pin: GPIO10 # was 32
+    pin: GPIO10                 ### INT 1 (C-1)  ###
     id: motor_forward_pin
     frequency: 20000 Hz
 
   - platform: ledc
-    pin: GPIO11 # was 14
+    pin: GPIO11                 ### INT 2 (C-1)  ###
     id: motor_reverse_pin
     frequency: 20000 Hz
 
   - platform: ledc
     frequency: 20000 Hz
-    pin: GPIO16 # was 23
+    pin: GPIO16                 ### INT 3 (C-1)  ###
     id: motor2_forward_pin
 
   - platform: ledc
-    pin: GPIO17 # was 22
+    pin: GPIO17                 ### INT 4 (C-1)  ###
     frequency: 20000 Hz
     id: motor2_reverse_pin    
 
   - platform: ledc
     frequency: 20000 Hz
-    pin: GPIO08 # was 23
+    pin: GPIO08                 ### INT 1 (C-2)  ###
     id: motor3_forward_pin
 
   - platform: ledc
-    pin: GPIO09 # was 22
+    pin: GPIO09                 ### INT 2 (C-2)  ###
     frequency: 20000 Hz
     id: motor3_reverse_pin    
 
@@ -183,18 +183,18 @@ audio_file:
 
 i2s_audio:   ##########################################################
   - id: mic_i2s
-    i2s_lrclk_pin: GPIO01
-    i2s_bclk_pin: GPIO05
+    i2s_lrclk_pin: GPIO01       ###  WS   ###
+    i2s_bclk_pin: GPIO05        ###  SCK  ###
   - id: spk_i2s
-    i2s_lrclk_pin: GPIO06
-    i2s_bclk_pin: GPIO07
+    i2s_lrclk_pin: GPIO06       ### LRC   ###
+    i2s_bclk_pin: GPIO07        ### BCLK  ###
 
 microphone:    ########################################################
   - platform: i2s_audio
     id: mic
     i2s_audio_id: mic_i2s
     adc_type: external        
-    i2s_din_pin: GPIO04
+    i2s_din_pin: GPIO04         ### SD  ###
     channel: left    
     pdm: false
 
@@ -203,13 +203,10 @@ speaker:   ############################################################
   - platform: i2s_audio
     id: big_speaker
     i2s_audio_id: spk_i2s
-
-
     i2s_dout_pin: 
-      number: GPIO014
+      number: GPIO014          ### DIN  ###
       allow_other_uses: true
     dac_type: external
-    
 
 
   - platform: speaker_tap
@@ -327,7 +324,7 @@ micro_wake_word:   ###########################################################
 
     - delay: 700ms 
 
-    - lambda: "id(wake_response)  = (random_uint32() % 3);"    
+    - lambda: "id(wake_response)  = (random_uint32() % 4);"    
     - if:
         condition:
           lambda: 'return id(wake_response) == 0;'
