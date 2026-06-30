@@ -8,7 +8,7 @@ A Home Assistant Voice Assistant built from a Singing Big Mouth Billy Bass.
 
 This is for the 3 motor 1999 Gemmy original bass.  Most other and newer fish use 2 motors and require slight modifications and only one motor controller.
 
-Requires a Billy Bass, 2 motor controllers, speaker amp, and i2s microphone.  Uses an N16R8 ESP32-S6 chip for local wakeword and storing the songs locally on the chip for more accurate animation.
+Requires a Billy Bass, 2 motor controllers, speaker amp, and i2s microphone.  Uses an N16R8 ESP32-S6 for local wakeword and storing the songs locally on the device for more accurate animation.
 
 Wiring as shown below:
 
