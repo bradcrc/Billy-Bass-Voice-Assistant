@@ -3,7 +3,7 @@
 A Home Assistant Voice Assistant built from a Singing Big Mouth Billy Bass.
 
 
-[![youtube](youtube.jpg)](https://www.youtube.com/watch?v=KP1u3Beq6l0)
+[![youtube](youtube.jpg)](https://youtu.be/kj832u6UEC0)
 
 
 This is for the 3 motor 1999 Gemmy original bass.  Most other and newer fish use 2 motors and require slight modifications and only one motor controller.
