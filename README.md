@@ -14,6 +14,8 @@ Wiring as shown below:
 
 ![Wiring](wiring.jpg)
 
-Inspired by the [Billy-AI project here](https://github.com/Cian911/billy-ai/) Check it out for great instructions on building your own.
+Inspired by the [Billy-AI project here](https://github.com/Cian911/billy-ai/) Check it out for great instructions on building your own.  
+
+Also check out [Things from Thom](https://github.com/Thokoop/Billy-B-assistant/) for other cool talking fish stuff.
 
 Uses "hey Billy" Microwakeword from [TaterTotterson](https://github.com/TaterTotterson/microWakeWords/tree/main/microWakeWordsV3)
